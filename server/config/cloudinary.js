@@ -3,6 +3,12 @@ import dotenv from 'dotenv';
 
 dotenv.config({ override: true });
 
+console.log('--- DBG CLOUDINARY CONFIG ---');
+console.log('CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME);
+console.log('API_KEY:', process.env.CLOUDINARY_API_KEY);
+console.log('API_SECRET:', process.env.CLOUDINARY_API_SECRET ? '***' + process.env.CLOUDINARY_API_SECRET.slice(-4) : 'undefined');
+console.log('-----------------------------');
+
 const isCloudinaryConfigured = 
   !!(process.env.CLOUDINARY_CLOUD_NAME && 
      process.env.CLOUDINARY_API_KEY && 

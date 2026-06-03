@@ -1,31 +1,21 @@
-import fs from 'fs';
-import path from 'path';
 import { uploadToCloudinary, isCloudinaryConfigured, cloudinary } from '../config/cloudinary.js';
 import Image from '../models/Image.js';
 import Folder from '../models/Folder.js';
 
-// Ensure uploads folder exists for local fallback
-const uploadDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
 // Helper: Extract public ID from Cloudinary URL
 const getCloudinaryPublicId = (url) => {
   try {
-    // Cloudinary URLs look like: https://res.cloudinary.com/cloud-name/image/upload/v12345/folder/filename.jpg
     const parts = url.split('/upload/');
     if (parts.length < 2) return null;
-    const pathAfterUpload = parts[1]; // e.g. "v12345/folder/filename.jpg" or "folder/filename.jpg"
+    const pathAfterUpload = parts[1];
     const pathParts = pathAfterUpload.split('/');
-    // Remove version (e.g. "v12345") if present
     if (pathParts[0].startsWith('v') && !isNaN(pathParts[0].substring(1))) {
       pathParts.shift();
     }
-    const publicIdWithExtension = pathParts.join('/'); // e.g. "folder/filename.jpg"
+    const publicIdWithExtension = pathParts.join('/');
     const lastDotIndex = publicIdWithExtension.lastIndexOf('.');
     if (lastDotIndex === -1) return publicIdWithExtension;
-    return publicIdWithExtension.substring(0, lastDotIndex); // e.g. "folder/filename"
+    return publicIdWithExtension.substring(0, lastDotIndex);
   } catch (error) {
     console.error('Error parsing Cloudinary URL public ID:', error);
     return null;
@@ -41,6 +31,12 @@ export const uploadImage = async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    if (!isCloudinaryConfigured) {
+      return res.status(500).json({ 
+        message: 'Cloudinary is not configured. Please enter valid CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in your .env file.' 
+      });
+    }
+
     const { folderId } = req.body;
     const targetFolderId = folderId === 'root' || !folderId ? null : folderId;
 
@@ -52,33 +48,12 @@ export const uploadImage = async (req, res) => {
       }
     }
 
-    let imageUrl = '';
     const name = req.file.originalname;
     const size = req.file.size;
-    let uploadedToCloud = false;
 
-    if (isCloudinaryConfigured) {
-      try {
-        // Upload to Cloudinary using stream
-        const result = await uploadToCloudinary(req.file.buffer, 'nestdrive');
-        imageUrl = result.secure_url;
-        uploadedToCloud = true;
-      } catch (cloudError) {
-        console.warn('Cloudinary upload failed (checking credentials/network). Falling back to local storage:', cloudError.message);
-      }
-    }
-
-    if (!uploadedToCloud) {
-      // Local fallback storage
-      const filename = `${Date.now()}-${name.replace(/\s+/g, '-')}`;
-      const localFilePath = path.join(uploadDir, filename);
-      
-      // Write buffer to local folder
-      await fs.promises.writeFile(localFilePath, req.file.buffer);
-      
-      // Generate serving URL
-      imageUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`;
-    }
+    // Upload to Cloudinary using stream uploader
+    const result = await uploadToCloudinary(req.file.buffer, 'nestdrive');
+    const imageUrl = result.secure_url;
 
     const newImage = await Image.create({
       name,
@@ -91,7 +66,7 @@ export const uploadImage = async (req, res) => {
     res.status(201).json(newImage);
   } catch (error) {
     console.error('Upload Error:', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: `Cloudinary upload failed: ${error.message}` });
   }
 };
 
@@ -107,18 +82,11 @@ export const deleteImage = async (req, res) => {
       return res.status(404).json({ message: 'Image not found' });
     }
 
-    // Try deleting from cloud or disk
-    if (isCloudinaryConfigured && image.imageUrl.includes('cloudinary.com')) {
+    // Delete from Cloudinary
+    if (image.imageUrl.includes('cloudinary.com')) {
       const publicId = getCloudinaryPublicId(image.imageUrl);
       if (publicId) {
         await cloudinary.uploader.destroy(publicId);
-      }
-    } else if (image.imageUrl.includes('/uploads/')) {
-      // Local file cleanup
-      const filename = image.imageUrl.split('/uploads/')[1];
-      const localFilePath = path.join(uploadDir, filename);
-      if (fs.existsSync(localFilePath)) {
-        await fs.promises.unlink(localFilePath);
       }
     }
 
@@ -140,13 +108,11 @@ export const searchDrive = async (req, res) => {
   }
 
   try {
-    // Search folders (case-insensitive regex)
     const folders = await Folder.find({
       userId: req.user.id,
       name: { $regex: q, $options: 'i' },
     });
 
-    // Search files (case-insensitive regex)
     const images = await Image.find({
       userId: req.user.id,
       name: { $regex: q, $options: 'i' },

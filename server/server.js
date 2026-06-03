@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import path from 'path';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import folderRoutes from './routes/folderRoutes.js';
@@ -20,9 +19,6 @@ const app = express();
 // Middlewares
 app.use(cors());
 app.use(express.json());
-
-// Serve uploads directory as static folder for local fallback storage
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
